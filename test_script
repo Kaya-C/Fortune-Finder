@@ -1,0 +1,186 @@
+#!/bin/bash
+#
+# Simple test framework for fortuneFinder
+# Returns number of failed test cases as exit code.
+#
+# Format:
+#   test 'command' expected_return 'stdin text' 'expected stdout substring' 'expected stderr substring'
+#
+# Minimal changes from original:
+#  - numeric return code compare (-ne)
+#  - substring checks for STDOUT/STDERR
+#  - feed STDIN so scanf doesn't hang
+#
+# 2025
+
+# GLOBALS
+declare -i tc=0
+declare -i fails=0
+
+############################################
+# Run a single test (contains-based checks)
+# GLOBALS: tc, fails
+# PARAMS:
+#   $1 = command (string)
+#   $2 = expected return value (number)
+#   $3 = stdin text to send
+#   $4 = expected stdout (substring; leave "" to skip check)
+#   $5 = expected stderr (substring; leave "" to skip check)
+############################################
+test() {
+    ((tc++))
+
+    local COMMAND=$1
+    local RETURN=$2
+    local STDIN=$3
+    local STDOUT=$4
+    local STDERR=$5
+
+    # CHECK RETURN VALUE (numeric)
+    $COMMAND <<< "$STDIN" >/dev/null 2>/dev/null
+    local A_RETURN=$?
+
+    if [ "$A_RETURN" -ne "$RETURN" ]; then
+        echo "Test $tc Failed"
+        echo "   $COMMAND"
+        echo "   Expected Return: $RETURN"
+        echo "   Actual Return:   $A_RETURN"
+        ((fails++))
+        return 1
+    fi
+
+    # CHECK STDOUT (contains)
+    if [[ -n "$STDOUT" ]]; then
+        local A_STDOUT
+        A_STDOUT="$($COMMAND <<< "$STDIN" 2>/dev/null)"
+        if [[ "$A_STDOUT" != *"$STDOUT"* ]]; then
+            echo "Test $tc Failed"
+            echo "   $COMMAND"
+            echo "   Expected STDOUT to contain: $STDOUT"
+            echo "   ---- Actual STDOUT ----"
+            echo "$A_STDOUT"
+            echo "--------------------------"
+            ((fails++))
+            return 2
+        fi
+    fi
+
+    # CHECK STDERR (contains)
+    if [[ -n "$STDERR" ]]; then
+        local A_STDERR
+        A_STDERR="$($COMMAND <<< "$STDIN" 2>&1 >/dev/null)"
+        if [[ "$A_STDERR" != *"$STDERR"* ]]; then
+            echo "Test $tc Failed"
+            echo "   $COMMAND"
+            echo "   Expected STDERR to contain: $STDERR"
+            echo "   ---- Actual STDERR ----"
+            echo "$A_STDERR"
+            echo "--------------------------"
+            ((fails++))
+            return 3
+        fi
+    fi
+
+    echo "Test $tc Passed"
+    return 0
+}
+
+
+##########################################
+# TEST CASES (assumes ./fortuneFinder exists)
+##########################################
+
+
+
+# 1) Default hard mode; user quits immediately with 0
+test './gtest' 0 "0\n" "You chose to quit. Final score 0." ""
+
+# 2) --help prints help to STDOUT and exits success
+test './gtest --help' 0 "" "fortune_finder - Grid Logic Game" ""
+
+# 3) Treasure check for easy mode: output shows a treasure is found
+test './gtest --test easy' 0 "3\n0\n" "You find a treasure!" ""
+
+# 4) Bomb check for easy mode: output shows a bomb is touched
+test './gtest --test easy' 0 "5\n0\n" "You touched a bomb! Game over!" ""
+
+# 5) Hint check for easy mode: output shows posibilities of treasure/bombs around chose position
+test './gtest --test easy' 0 "7\n0\n" "This is a hint box!
+Treasure chances near you: 25.0%
+Bomb chances near you: 0.0%" ""
+
+# 6) Empty space check for easy mode: hint with number of treasure/bombs around chose position
+test './gtest --test easy' 0 "6" "There are 1 treasures and 0 bombs besides you" ""
+
+# 7) Treasure check for hard mode: output shows a treasure is found
+test './gtest --test hard' 0 "6" "You find a treasure!" ""
+
+# 8) Bomb check for hard mode: output shows a bomb is touched
+test './gtest --test hard' 0 "3" "You touched a bomb! Game over!" ""
+
+# 9) Hint check for hard mode: output shows posibilities of treasure/bombs around chose position
+test './gtest --test hard' 0 "4" "This is a hint box!
+Treasure chances near you: 12.5%
+Bomb chances near you: 25.0%" ""
+
+# 10) Empty space check for hard mode: hint with number of treasure/bombs around chose position
+test './gtest --test hard' 0 "11" "There are 1 treasures and 2 bombs besides you" ""
+
+# 11) Score check: add score when treasure is found
+test './gtest --test hard' 0 "6" "Your current score: 1/5" ""
+
+# 12) Game information check: output shows how many bombs and hints in total
+test './gtest --test easy' 0 "6" "There are 4 bombs and 5 hints in total." ""
+
+# 13) Easy mode; user quits immediately
+test './gtest --test easy' 0 "0\n" "Starting game in easy mode." ""
+
+# 14) Bounds check: zero quits immediately (explicit)
+test './gtest --test hard' 0 "0" "You chose to quit. Final score 0." ""
+
+# 15) Explicit hard mode; non-integer input triggers input error
+test './gtest --test hard' 0 "abc\n" "Input error. Exiting game." ""
+
+# 16) Invalid box then quit (easy)
+test './gtest --test easy' 0 "-1\n0\n" "Invalid box number. Please try again." ""
+
+# 17) Bounds check: number too large for hard mode
+test './gtest' 0 "999\n0\n" "Invalid box number. Please try again." ""
+
+# 18) Unknown option -> error message to STDERR
+test './gtest --bogus' 1 "" "" "Error: unknown option '--bogus'."
+
+# 19) Bad mode value -> error message to STDERR
+test './gtest --test medium' 2 "" "" "Error: unknown test mode 'medium'"
+
+# 20) Too many arguments -> error message to STDERR
+test './gtest --test hard 4' 3 "" "" "Error: too many arguments."
+
+## Other success + fail tests for complete coverage report ##
+
+# 21) Treasure completion message: output contains final success text
+test './gtest --test easy' 0 "2
+3
+4
+9
+14
+25
+0" "You have found all the treasures!" ""
+
+# 22) Silence hint box message: output contains empty hint box message
+test './gtest --test hard' 0 "31" "Nothing Nearby!" ""
+
+# 23) Arguments are 3 but do not match expected options -> error message to STDERR
+test './gtest --gamemode easy' 3 "" "" "Error: no such flag exists."
+
+# 24) --mode easy -> sets MODE_EASY
+test './gtest --mode easy' 0 "" "" ""
+
+# 25) --mode hard -> sets MODE_HARD
+test './gtest --mode hard' 0 "" "" ""
+
+# 26) --mode Unknown mode -> error 2
+test './gtest --mode medium' 2 "" "" "Error: unknown mode 'medium' (expected 'easy' or 'hard')."
+
+# Return number of failed tests
+exit $fails

@@ -1,0 +1,53 @@
+name: CI - fortuneFinder Utility
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build release version 
+      run: make fortuneFinder
+
+    - name: Upload fortuneFinder executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: fortuneFinder
+        path: ./fortuneFinder
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build test version 
+      run: make gtest
+
+    - name: Make test_script executable
+      run: chmod +x test_script
+
+    - name: Run test_script 
+      run: |
+        ./test_script > test_results.txt
+        cat test_results.txt
+    - name: Run test_script 
+      run: ./test_script > test_results.txt
+
+    - name: Generate coverage reports
+      run: |
+        gcov gtest-main.c
+        gcov gtest-initializer.c
+        gcov gtest-grid.c
+        gcov gtest-status.c
+    - name: Upload Coverage and Test Results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: Test and Coverage Results
+        path: |
+          test_results.txt
+          *.gcov
